@@ -36,6 +36,8 @@ export interface TmuxSegmentConfig extends SegmentConfig {}
 export interface ContextSegmentConfig extends SegmentConfig {
   showPercentageOnly?: boolean;
   displayStyle?: "text" | "bar";
+  showPercentageUsed?: boolean;
+  useRawContextLimit?: boolean;
 }
 
 export interface MetricsSegmentConfig extends SegmentConfig {
@@ -337,20 +339,37 @@ export class SegmentRenderer {
     const barLength = 10;
 
     if (!contextInfo) {
+      const defaultPct = config?.showPercentageUsed ? "0%" : "100%";
       if (config?.displayStyle === "bar") {
         const emptyBar = this.symbols.bar_empty.repeat(barLength);
         return {
-          text: `${emptyBar} 0%`,
+          text: `${emptyBar} ${defaultPct}`,
           bgColor: colors.contextBg,
           fgColor: colors.contextFg,
         };
       }
       return {
-        text: `${this.symbols.context_time} 0 (100%)`,
+        text: `${this.symbols.context_time} 0 (${defaultPct})`,
         bgColor: colors.contextBg,
         fgColor: colors.contextFg,
       };
     }
+
+    // Calculate the percentage to display based on config options
+    let displayPercentage: number;
+    if (config?.useRawContextLimit) {
+      // Use percentage against full context limit (100%)
+      displayPercentage = config?.showPercentageUsed
+        ? contextInfo.percentage
+        : 100 - contextInfo.percentage;
+    } else {
+      // Use percentage against usable limit (75%)
+      displayPercentage = config?.showPercentageUsed
+        ? contextInfo.usablePercentage
+        : contextInfo.contextLeftPercentage;
+    }
+
+    const percentageStr = `${displayPercentage}%`;
 
     let bgColor = colors.contextBg;
     let fgColor = colors.contextFg;
@@ -364,22 +383,22 @@ export class SegmentRenderer {
     }
 
     if (config?.displayStyle === "bar") {
-      const usedPct = contextInfo.usablePercentage;
-      const filledCount = Math.round((usedPct / 100) * barLength);
+      const filledCount = Math.round((displayPercentage / 100) * barLength);
       const emptyCount = barLength - filledCount;
-      const bar = this.symbols.bar_filled.repeat(filledCount) + this.symbols.bar_empty.repeat(emptyCount);
+      const bar = config?.showPercentageUsed
+        ? this.symbols.bar_filled.repeat(filledCount) + this.symbols.bar_empty.repeat(emptyCount)
+        : this.symbols.bar_empty.repeat(emptyCount) + this.symbols.bar_filled.repeat(filledCount);
 
       const text = config?.showPercentageOnly
-        ? `${bar} ${usedPct}%`
-        : `${bar} ${contextInfo.totalTokens.toLocaleString()} (${usedPct}%)`;
+        ? `${bar} ${percentageStr}`
+        : `${bar} ${contextInfo.totalTokens.toLocaleString()} (${percentageStr})`;
 
       return { text, bgColor, fgColor };
     }
 
-    const contextLeft = `${contextInfo.contextLeftPercentage}%`;
     const text = config?.showPercentageOnly
-      ? `${this.symbols.context_time} ${contextLeft}`
-      : `${this.symbols.context_time} ${contextInfo.totalTokens.toLocaleString()} (${contextLeft})`;
+      ? `${this.symbols.context_time} ${percentageStr}`
+      : `${this.symbols.context_time} ${contextInfo.totalTokens.toLocaleString()} (${percentageStr})`;
 
     return { text, bgColor, fgColor };
   }
